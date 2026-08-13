@@ -1,9 +1,21 @@
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import PromptTemplate
 import streamlit as st
 import os
+import hashlib
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_openai.embeddings import OpenAIEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_core.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnableParallel
+from langchain_core.output_parsers import StrOutputParser
 
+from dotenv import load_dotenv
+
+load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
+embedding = OpenAIEmbeddings(model = "text-embedding-ada-002", api_key=api_key)
 
 chat = ChatOpenAI(
     model="gpt-4",
@@ -112,14 +124,24 @@ def retrieve(state):
 
 
 def answer(state):
+    context = "\n\n".join(
+        doc.page_content for doc in state["documents"]
+    )
 
     response = chat.invoke(
         prompt.format(
             question=state["question"],
-            context=state["documents"]
+            context=context
         )
     )
+   
 
     return {
-        "answer": response.content
+        "answer": response.content,
+        "chat_history": [
+            {
+                "question": state["question"],
+                "answer": response.content,
+            }
+        ]
     }

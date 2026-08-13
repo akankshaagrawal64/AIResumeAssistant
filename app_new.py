@@ -6,26 +6,20 @@ import streamlit as st
 
 from graph.graph import graph
 
-
 # ---------------------------------------------
 # Load Environment
 # ---------------------------------------------
 
 load_dotenv()
-
-
+api_key = os.getenv("OPENAI_API_KEY")
 # ---------------------------------------------
 # Streamlit Config
 # ---------------------------------------------
 
-st.set_page_config(
-    page_title="AI Resume Assistant"
-)
+st.set_page_config(page_title="AI Resume Assistant")
 
 st.title("AI Resume Assistant")
-
 st.write("Upload your resume")
-
 
 # ---------------------------------------------
 # Upload Resume
@@ -36,30 +30,19 @@ uploaded_file = st.file_uploader(
     type=["pdf"]
 )
 
-
 if uploaded_file is not None:
 
     upload_folder = "uploads"
-
-    os.makedirs(
-        upload_folder,
-        exist_ok=True
-    )
-
+    os.makedirs(upload_folder, exist_ok=True)
 
     file_path = os.path.join(
         upload_folder,
         uploaded_file.name
     )
 
-
     # Save PDF
-
     with open(file_path, "wb") as f:
-        f.write(
-            uploaded_file.getbuffer()
-        )
-
+        f.write(uploaded_file.getbuffer())
 
     # -----------------------------------------
     # Create Resume Hash
@@ -71,38 +54,50 @@ if uploaded_file is not None:
         file_bytes
     ).hexdigest()
 
+    st.success("Resume uploaded")
 
-    st.success(
-        "Resume uploaded"
-    )
-
+    config = {
+        "configurable": {
+            "thread_id": resume_hash
+        }
+    }
 
     # -----------------------------------------
-    # Ask Question
+    # Load existing history
     # -----------------------------------------
 
-    st.divider()
+    state = graph.get_state(config)
 
+    history = []
+
+    if state.values:
+        history = state.values.get("chat_history", [])
+
+    # -----------------------------------------
+    # Show previous conversation
+    # -----------------------------------------
+
+    for i, chat in enumerate(history, 1):
+        st.markdown(f"### Question {i}")
+        st.write(chat["question"])
+
+        st.markdown("**Answer**")
+        st.write(chat["answer"])
+
+        st.divider()
+
+    # -----------------------------------------
+    # Ask next question
+    # -----------------------------------------
 
     question = st.text_input(
-        "Ask a question about your resume"
+        "Ask another question",
+        key=f"question_{len(history)}"
     )
-
 
     if question:
 
-
-        config = {
-            "configurable": {
-                "thread_id": resume_hash
-            }
-        }
-
-
-        with st.spinner(
-            "Thinking..."
-        ):
-
+        with st.spinner("Thinking..."):
 
             result = graph.invoke(
                 {
@@ -110,16 +105,11 @@ if uploaded_file is not None:
                     "resume_hash": resume_hash,
                     "question": question,
                     "documents": [],
-                    "answer": ""
+                    "answer": "",
+                    "chat_history": []
                 },
                 config=config
             )
 
-
-        st.subheader(
-            "Answer"
-        )
-
-        st.write(
-            result["answer"]
-        )
+        # Refresh page so the new Q&A appears above
+        st.rerun()
