@@ -1,1 +1,18 @@
-.env 
+
+# Environment
+.env
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Chroma local database
+chroma_db/
+chroma_db_old/
+
+# Uploaded documents
+uploads/
+
+# Streamlit
+.streamlit/
