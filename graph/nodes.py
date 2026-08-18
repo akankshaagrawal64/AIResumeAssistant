@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 import hashlib
+import time
+import uuid
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 #from langchain_openai.embeddings import OpenAIEmbeddings
@@ -12,6 +14,7 @@ from langchain_core.runnables import RunnableParallel
 from langchain_core.output_parsers import StrOutputParser
 from langchain_pinecone import PineconeVectorStore
 from langchain_huggingface import HuggingFaceEmbeddings
+from sentence_transformers import CrossEncoder
 
 from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
@@ -43,6 +46,10 @@ embedding = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
+reranker = CrossEncoder(
+    "cross-encoder/ms-marco-MiniLM-L-6-v2"
+)
+
 chat = ChatOpenAI(
     model="gpt-4",
     temperature=0,
@@ -64,17 +71,18 @@ prompt = PromptTemplate.from_template(template)
 def process_resume(state):
 
     file_path = state["file_path"]
-
+    document_id = state["document_id"]
+    document_name = state["document_name"]
     # Create hash
     with open(file_path, "rb") as f:
         file_bytes = f.read()
-
+    '''
     resume_hash = hashlib.md5(
         file_bytes
     ).hexdigest()
-
-
-    namespace = f"doc-{resume_hash}"
+    '''
+   
+    namespace = state["vectorstore_namespace"]
 
     # -----------------------------
     # Already processed?
@@ -99,11 +107,26 @@ def process_resume(state):
 
     if namespace_info and namespace_info.vector_count > 0:
 
-        # Already embedded
-        return {
-            "resume_hash": resume_hash,
-            "vectorstore_namespace": namespace
-        }
+       # Get existing document IDs
+        existing_docs = index.query(
+            namespace=namespace,
+            vector=[0.0] * 384,
+            top_k=10000,
+            include_metadata=True,
+            filter={
+                "document_id": {
+                    "$eq": document_id
+                }
+            }
+        )
+
+        if existing_docs.matches:
+
+            return {
+                "document_id": document_id,
+                "document_name": document_name,
+                "vectorstore_namespace": namespace
+            }
 
 
     # Load PDF
@@ -125,7 +148,24 @@ def process_resume(state):
         pages
     )
 
+    # -----------------------------------------
+    # Add metadata
+    # -----------------------------------------
 
+    for i, chunk in enumerate(chunks):
+
+        page_number = (
+            chunk.metadata.get("page", 0) + 1
+        )
+
+        chunk.metadata.update({
+            "document_id": document_id,
+            "document_name": document_name,
+            "page": page_number,
+            "chunk_id": i
+        })
+
+   
     # Create Vector DB
 
     #vectorstore_path = "./chroma_db"
@@ -152,12 +192,59 @@ def process_resume(state):
      # Give Pinecone a little time
     time.sleep(2)
     return {
-        "resume_hash": resume_hash,
+        "document_id": document_id,
+        "document_name": document_name,
         #"vectorstore_path": vectorstore_path
         "vectorstore_namespace": namespace
     }
 
 
+def rerank(state):
+
+    question = state["question"]
+
+    documents = state["documents"]
+
+    # -----------------------------------------
+    # Create question-document pairs
+    # -----------------------------------------
+
+    pairs = [
+        (
+            question,
+            doc.page_content
+        )
+        for doc in documents
+    ]
+
+    # -----------------------------------------
+    # Get reranker scores
+    # -----------------------------------------
+
+    scores = reranker.predict(pairs)
+
+    # -----------------------------------------
+    # Combine score + document
+    # -----------------------------------------
+
+    ranked_documents = sorted(
+        zip(scores, documents),
+        key=lambda x: x[0],
+        reverse=True
+    )
+
+    # -----------------------------------------
+    # Keep top 3
+    # -----------------------------------------
+
+    top_documents = [
+        doc
+        for score, doc in ranked_documents[:3]
+    ]
+
+    return {
+        "reranked_documents": top_documents
+    }
 
 def retrieve(state):
     '''
@@ -176,7 +263,7 @@ def retrieve(state):
     retriever = vectorstore.as_retriever(
         search_type="similarity",
         search_kwargs={
-            "k":3
+            "k":7
         }
     )
 
@@ -193,7 +280,7 @@ def retrieve(state):
 
 def answer(state):
     context = "\n\n".join(
-        doc.page_content for doc in state["documents"]
+        doc.page_content for doc in state["reranked_documents"]
     )
 
     response = chat.invoke(

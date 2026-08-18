@@ -1,13 +1,12 @@
 from langgraph.graph import StateGraph, START, END
 
-from graph.state import ResumeState
 from langgraph.checkpoint.memory import InMemorySaver
 
-
+from graph.state import ResumeState
 
 from graph.nodes import (
-    process_resume,
     retrieve,
+    rerank,
     answer
 )
 
@@ -15,16 +14,14 @@ from graph.nodes import (
 builder = StateGraph(ResumeState)
 
 
-# Nodes
-
-builder.add_node(
-    "process_resume",
-    process_resume
-)
-
 builder.add_node(
     "retrieve",
     retrieve
+)
+
+builder.add_node(
+    "rerank",
+    rerank
 )
 
 builder.add_node(
@@ -33,20 +30,18 @@ builder.add_node(
 )
 
 
-# Flow
-
 builder.add_edge(
     START,
-    "process_resume"
-)
-
-builder.add_edge(
-    "process_resume",
     "retrieve"
 )
 
 builder.add_edge(
     "retrieve",
+    "rerank"
+)
+
+builder.add_edge(
+    "rerank",
     "answer"
 )
 
@@ -54,6 +49,8 @@ builder.add_edge(
     "answer",
     END
 )
+
+
 memory = InMemorySaver()
 
 graph = builder.compile(
