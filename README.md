@@ -30,7 +30,6 @@ The system uses:
 * Support multiple documents in a single session
 * Avoid unnecessary re-embedding of already processed documents
 * Document-level and page-level source metadata
-* Source/citation support
 * RAG evaluation using RAGAS
 * Evaluate retrieval quality and answer quality
 
